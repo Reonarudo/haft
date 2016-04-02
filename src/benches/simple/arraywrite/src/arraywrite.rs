@@ -6,9 +6,9 @@ const MAXSIZE:usize = 1000*1000;
 static mut arr:[char;MAXSIZE]=[' ';MAXSIZE];
 
 fn arraywrite(size:usize){
-    for i in (0..size).rev(){
+    for i in 0..size{
 		unsafe{
-		//TODO: check what happens when usize is 64 bit
+		//char::from_digit best match with atoi
 			arr[i]=char::from_digit(i as u32, 10).unwrap();
 		}
 	}

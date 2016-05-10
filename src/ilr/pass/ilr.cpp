@@ -55,8 +55,8 @@
 #include <set>
 #include <sstream>
 #include <utility>
-#include <tr1/memory>
-#include <tr1/tuple>
+#include <memory>
+#include <tuple>
 
 using namespace llvm;
 
@@ -77,7 +77,7 @@ class SwiftHelpers {
 
 		bool isnew;
 		Type2FunctionMap::iterator it;
-		std::tr1::tie (it, isnew) = map.insert(std::make_pair(type, F));
+		std::tie (it, isnew) = map.insert(std::make_pair(type, F));
 		assert (isnew && "type collision: function for this type exists already");
 
 		helpers.insert(F);
@@ -263,7 +263,7 @@ class ValueShadowMap{
 		bool isnew;
 		ValueShadowMapType::iterator it;
 
-		std::tr1::tie(it, isnew) = vsm.insert(std::make_pair(v, shadow));
+		std::tie(it, isnew) = vsm.insert(std::make_pair(v, shadow));
 		assert (isnew && "value already has a shadow");
 	}
 
@@ -434,7 +434,11 @@ class SwiftTransformer {
 		}
 
 		Value* id = ConstantInt::get(Type::getInt32Ty(getGlobalContext()), next_id++);
-		irBuilder.CreateCall3(it->second, v1, v2, id);
+        std::vector<Value*> args;
+        args.push_back(v1);
+        args.push_back(v2);
+        args.push_back(id);
+		irBuilder.CreateCall(it->second, args);
 	}
 
 	Instruction* createMoveCall(IRBuilder<>& irBuilder, Value* v) {
@@ -811,8 +815,8 @@ class SwiftTransformer {
 
 		// make a shadow for each function arg (using swift-move)
 		for (auto arg = F.arg_begin(); arg != F.arg_end(); ++arg){
-			Value *shadow = createMoveCall(irBuilder, arg);
-			shadows.add(arg, shadow);
+			Value *shadow = createMoveCall(irBuilder, (Argument*)arg);
+			shadows.add((Argument*)arg, shadow);
 		}
 	}
 
@@ -1082,12 +1086,12 @@ class SwiftPass : public FunctionPass {
 				BasicBlock::iterator nextIt = std::next(instIt);
 
 				if (!shadowedArgs) {
-					swifter.shadowArgs(F, instIt);
+					swifter.shadowArgs(F, (Instruction*)instIt);
 					shadowedArgs = true;
 				}
 
-				swifter.checkInst (instIt);
-				swifter.shadowInst (instIt);
+				swifter.checkInst ((Instruction*)instIt);
+				swifter.shadowInst ((Instruction*)instIt);
 
 				instIt = nextIt;
 			}
@@ -1095,13 +1099,13 @@ class SwiftPass : public FunctionPass {
 
 		// walk through BBs not covered by dominator tree (case for landing pads)
 		for (Function::iterator BB = F.begin(), BE = F.end(); BB != BE; ++BB) {
-			if (visited.count(BB) > 0)
+			if (visited.count((BasicBlock*)BB) > 0)
 				continue;
 
 			for (BasicBlock::iterator instIt = BB->begin (); instIt != BB->end (); ) {
 				BasicBlock::iterator nextIt = std::next(instIt);
-				swifter.checkInst (instIt);
-				swifter.shadowInst (instIt);
+				swifter.checkInst ((Instruction*)instIt);
+				swifter.shadowInst ((Instruction*)instIt);
 				instIt = nextIt;
 			}
 		}

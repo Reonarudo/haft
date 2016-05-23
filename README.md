@@ -13,6 +13,8 @@ This repository provides two benchmark suites, PARSEC and Phoenix (pthreads vers
 The other benchmarks (LogCabin, Memcached, SQLite3, LevelDB, and Apache) are *not* found in this repository. Please ask us directly if you need them via email:
 `dmitrii.kuvaiskii [at] tu-dresden [dot] de`.
 
+This fork specifically extends haft to be appliable to RUST programs and more recent LLVM version (3.8)
+
 ## Docker
 
 Docker Hub contains a ready-to-use [Docker image](https://hub.docker.com/r/tudinfse/haft/).

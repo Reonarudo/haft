@@ -1,5 +1,8 @@
+#SET UP device specific env variables in ~/.bash_profile(OSX):
+#export LLVM_PATH=/usr/local/opt/llvm38/lib/llvm-3.8/bin
+#export LLVM_INCLUDE=/usr/local/opt/llvm38/lib/llvm-3.8/include
 # ===== LLVM PATHS =====
-LLVM_PATH = $(HOME)/bin/llvm/build/bin/
+#LLVM_PATH = $(HOME)/bin/llvm/build/bin/
 
 # ===== PASSES PATHS =====
 TX_PATH  = $(HOME)/code/haft/src/tx/

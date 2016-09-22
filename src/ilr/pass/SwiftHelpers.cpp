@@ -176,15 +176,15 @@ bool SwiftHelpers::isIgnoredFunc(Function* F) {
         
         "__dummy__",
         // Exception handling intrinsics
-        "llvm.eh.typeid.for",
-        "llvm.eh.begincatch",
-        "llvm.eh.endcatch",
-        "llvm.eh.exceptionpointer",
+        //"llvm.eh.typeid.for",
+        //"llvm.eh.begincatch",
+        //"llvm.eh.endcatch",
+        //"llvm.eh.exceptionpointer",
         //EH SJLJ intrinsics
-        "llvm.eh.sjlj.setjmp",
-        "llvm.eh.sjlj.longjmp",
-        "llvm.eh.sjlj.lsda",
-        "llvm.eh.sjlj.callsite"
+        //"llvm.eh.sjlj.setjmp",
+        //"llvm.eh.sjlj.longjmp",
+        //"llvm.eh.sjlj.lsda",
+        //"llvm.eh.sjlj.callsite"
     };
     
     if (!F) {

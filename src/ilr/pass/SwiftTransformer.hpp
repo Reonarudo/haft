@@ -58,9 +58,10 @@ class SwiftTransformer {
     
     unsigned long next_id = 0;
     
-    //Value* castToSupportedType(IRBuilder<>& irBuilder, Value* v);
+    Value* castToSupportedType(IRBuilder<>& irBuilder, Value* v);
     void createCheckerCall(IRBuilder<>& irBuilder, Value* v1, Value* v2, bool movev2);
     Instruction* createMoveCall(IRBuilder<>& irBuilder, Value* v);
+    Instruction* createMoveCall(IRBuilder<>& irBuilder, Value* v, bool dontcheckInst);
     void shadowInstOperands(Instruction* I, Instruction* shadow);
     void checkInstOperands(Instruction* I, IRBuilder<> irBuilder);
     
@@ -74,9 +75,8 @@ public:
     void insertChecksOnLoopHeader(Loop* L, DominatorTree* DT);
     void insertChecksOnLoopHeaders(LoopInfo &LI, DominatorTree* DT);
     void addShadowBasicBlocks(BranchInst* BI);
-    //void addShadowBasicBlocks2(BasicBlock* BBNormal, BasicBlock* BBUnwind);
     void addControlFlowChecks();
-    void addInvokeChecks(Function& F);
+    //void addInvokeChecks(Function& F);
     SwiftTransformer(SwiftHelpers* inSwiftHelpers);
 };
 

@@ -12,7 +12,7 @@ GlobalConstMap globalconsts;
 Inst2ShadowInBBMap excHand2Check;
 
 //Turns an unsupported value type into a supported one
-Value* castToSupportedType(IRBuilder<>& irBuilder, Value* v) {
+Value* SwiftTransformer::castToSupportedType(IRBuilder<>& irBuilder, Value* v) {
     Type *Ty = v->getType();
     
     switch (Ty->getTypeID()) {
@@ -176,53 +176,58 @@ void SwiftTransformer::createCheckerCall(IRBuilder<>& irBuilder, Value* v1, Valu
     irBuilder.CreateCall(it->second, argsRef);
 }
 
-Instruction* SwiftTransformer::createMoveCall(IRBuilder<>& irBuilder, Value* v) {
-    //errs() <<  "Creating move call:";
+Instruction* SwiftTransformer::createMoveCall(IRBuilder<>& irBuilder, Value* v){
+    return createMoveCall(irBuilder,v, false);
+}
+
+Instruction* SwiftTransformer::createMoveCall(IRBuilder<>& irBuilder, Value* v, bool dontcheckInst) {
     if (StructType *st = dyn_cast<StructType>(v->getType())) {
-        // complex struct type, need to move each struct's field
         
+        // complex struct type, need to move each struct's field
         Value *newstruct = UndefValue::get(st);
         
         for (unsigned i = 0; i < st->getNumElements(); ++i) {
             Value *f = irBuilder.CreateExtractValue(v, ArrayRef<unsigned>(i));
-            Value *shadow = createMoveCall(irBuilder, f);
+            Value *shadow = createMoveCall(irBuilder, f, dontcheckInst);
             newstruct = irBuilder.CreateInsertValue(newstruct, shadow, ArrayRef<unsigned>(i));
+            if(dontcheckInst){
+                //dontcheck.insert(cast<Instruction>(shadow));
+                dontcheck.insert(cast<Instruction>(newstruct));
+                dontcheck.insert(cast<Instruction>(f));
+            }
         }
-        
         newstruct->setName(v->getName() + CLONE_SUFFIX);
-        
         return cast<Instruction>(newstruct);
     }
     
     Type* origType = v->getType();
     v = castToSupportedType(irBuilder, v);
-    
+    if(dontcheckInst)
+        dontcheck.insert(cast<Instruction>(v));
     Type2FunctionMap::iterator it = swiftHelpers->movers.find(v->getType());
     if (it == swiftHelpers->movers.end())
         errs() << "don't know how to handle type " << *(v->getType()) << "\n";
     assert (it != swiftHelpers->movers.end() && "no mover function found for specified type");
     
     Instruction *move = irBuilder.CreateCall(it->second, v, v->getName() + CLONE_SUFFIX);
+    if(dontcheckInst)
+        dontcheck.insert(move);
     if (v->getType() != origType) {
-        
         // we could cast from original ptr type to i8*, need to cast back
-        if (v->getType()->isPointerTy())
+        if (v->getType()->isPointerTy()){
+            //errs() << "PinPoint3\n";
             move = cast<Instruction>(irBuilder.CreateBitCast(move, origType, v->getName() + CLONE_SUFFIX));
-        
-        // we could zero-extend original int to bigger int, need to trunc back
-        if (v->getType()->isIntegerTy())
+        }else if (v->getType()->isIntegerTy()){
+            // we could zero-extend original int to bigger int, need to trunc back
             move = cast<Instruction>(irBuilder.CreateTrunc(move, origType, v->getName() + CLONE_SUFFIX));
-        
-        // we could extend from half-float to float, need to trunc back
-        if (v->getType()->isFloatTy() && origType->isHalfTy())
+        }else if (v->getType()->isFloatTy() && origType->isHalfTy()){
+            // we could extend from half-float to float, need to trunc back
             move = cast<Instruction>(irBuilder.CreateFPTrunc(move, origType, v->getName() + CLONE_SUFFIX));
-        
-        // we could trunc from fp80 to double, need to extend back
-        if (v->getType()->isDoubleTy() && origType->isX86_FP80Ty())
+        }else if (v->getType()->isDoubleTy() && origType->isX86_FP80Ty()){
+            // we could trunc from fp80 to double, need to extend back
             move = cast<Instruction>(irBuilder.CreateFPExt(move, origType, v->getName() + CLONE_SUFFIX));
-        
-        // we could have a vector of non-64-bit integers, need to cast back
-        if (v->getType()->isVectorTy() && origType->getVectorElementType()->isIntegerTy()) {
+        }else if (v->getType()->isVectorTy() && origType->getVectorElementType()->isIntegerTy()) {
+            // we could have a vector of non-64-bit integers, need to cast back
             Type* TyVecInt64  = VectorType::get(Type::getInt64Ty(getGlobalContext()), 2);
             Type* TyVecInt32  = VectorType::get(Type::getInt32Ty(getGlobalContext()), 4);
             Type* TyVecInt16  = VectorType::get(Type::getInt16Ty(getGlobalContext()), 8);
@@ -235,36 +240,38 @@ Instruction* SwiftTransformer::createMoveCall(IRBuilder<>& irBuilder, Value* v) 
                 case 8: move = cast<Instruction>(irBuilder.CreateBitCast(move, TyVecInt16)); break;
                 case 16: move = cast<Instruction>(irBuilder.CreateBitCast(move, TyVecInt8)); break;
             }
+            
             if ((NumEl == 2 && origType != TyVecInt64) ||
                 (NumEl == 4 && origType != TyVecInt32) ||
                 (NumEl == 8 && origType != TyVecInt16) ||
                 (NumEl == 16 && origType != TyVecInt8)) {
+                //from CreateBitCast in switch
+                if(dontcheckInst)
+                    dontcheck.insert(move);
                 move = cast<Instruction>(irBuilder.CreateTrunc(move, origType));
             }
             move->setName(v->getName() + CLONE_SUFFIX);
-        }
-        
-        // we could have a <2 x float> FP-extended to <2 x double>, need to trunc back
-        if (v->getType()->isVectorTy() && origType->getVectorElementType()->isFloatTy()) {
+        }else if (v->getType()->isVectorTy() && origType->getVectorElementType()->isFloatTy()) {
+            // we could have a <2 x float> FP-extended to <2 x double>, need to trunc back
             move = cast<Instruction>(irBuilder.CreateFPTrunc(move, origType, v->getName() + CLONE_SUFFIX));
-        }
-        
-        // we could have a <2 x iX*> (pair of pointers) casted to <2 x i64>, need to cast back
-        if (v->getType()->isVectorTy() && origType->getVectorElementType()->isPointerTy()) {
+        }else if (v->getType()->isVectorTy() && origType->getVectorElementType()->isPointerTy()) {
+            // we could have a <2 x iX*> (pair of pointers) casted to <2 x i64>, need to cast back
             move = cast<Instruction>(irBuilder.CreateIntToPtr(move, origType, v->getName() + CLONE_SUFFIX));
         }
     }
-    //errs() <<  *move << " for"<< *v <<"\n";
-    
+    if(dontcheckInst)
+        dontcheck.insert(move);
     return move;
 }
 
 void SwiftTransformer::shadowInstOperands(Instruction* I, Instruction* shadow) {
+    errs() << "shadowInstOperands("<< *I << ", " << *shadow << ")\n";
     for (unsigned i = 0; i < shadow->getNumOperands(); ++i) {
         Value *op = I->getOperand(i);
         Value *shadowOp = shadows.getShadow(op, I);
-        if (shadowOp)
+        if (shadowOp){
             shadow->setOperand(i, shadowOp);
+        }
     }
 }
 
@@ -276,15 +283,13 @@ void SwiftTransformer::checkInstOperands(Instruction* I, IRBuilder<> irBuilder) 
     }
 }
 
-
+//Shadows given instruction
 void SwiftTransformer::shadowInst(Instruction* I) {
-    errs() << "Shadowing instruction:" << *I << "\n";
+    //errs() << "SInside\n";
+    //it does not shadow void instructions
     if (I->use_empty())
         return;
-    
-    if (dontcheck.count(I)!=0) {
-        return;
-    }
+    //errs() << "Shadowing: " << *I <<"\n";
 #if 0
     if (I->isTerminator())
         errs() << I->getParent()->getParent()->getName() << "::  cannot shadow terminator instruction " << *I << "\n";
@@ -340,7 +345,7 @@ void SwiftTransformer::shadowInst(Instruction* I) {
         case Instruction::ShuffleVector:
         case Instruction::ExtractValue:
         case Instruction::InsertValue:
-            //EH
+            /* Loads */
         case Instruction::Load: {
             if (LoadInst* load = dyn_cast<LoadInst>(I)) {
 #ifdef SWIFT_OPTIMIZE_SHARED_MEMORY_ACCESSES
@@ -352,7 +357,6 @@ void SwiftTransformer::shadowInst(Instruction* I) {
                     //       they are usually declared as globals
                     Instruction *shadow = createMoveCall(irBuilder, I);
                     shadows.add(I, shadow);
-                    errs() <<  *shadow << "\n";
                     break;
                 }
                 if (load->isAtomic()) {
@@ -361,30 +365,26 @@ void SwiftTransformer::shadowInst(Instruction* I) {
                     // (see also checkInst)
                     Instruction *shadow = createMoveCall(irBuilder, I);
                     shadows.add(I, shadow);
-                    errs() <<  *shadow << "\n";
                     break;
                 }
 #else
                 // conservatively treat all loads as atomics
                 Instruction *shadow = createMoveCall(irBuilder, I);
                 shadows.add(I, shadow);
-                errs() <<  *shadow << "\n";
                 break;
 #endif
             }
-            
+            //errs() << "111\n";
             // shadow instruction, substituting all operands with shadow operands
             Instruction* shadow = I->clone();
             shadowInstOperands(I, shadow);
-            errs() <<  *shadow << "\n";
-            
+            //errs() << "222\n";
             if (LoadInst* load = dyn_cast<LoadInst>(shadow)) {
                 // make load volatile so not to be optimized away
                 load->setVolatile(true);
             }
-            
+            //errs() << "333\n";
             shadows.add(I, shadow);
-            errs() <<  *shadow << "\n";
             irBuilder.Insert(shadow, I->getName() + CLONE_SUFFIX);
         }
             break;
@@ -395,7 +395,6 @@ void SwiftTransformer::shadowInst(Instruction* I) {
             // declared and thus shadowed)
             PHINode* shadow = cast<PHINode>( I->clone() );
             shadows.add(I, shadow);
-            errs() <<  *shadow << "\n";
             irBuilder.Insert(shadow, I->getName() + CLONE_SUFFIX);
             phis.push_back(shadow);
         }
@@ -414,7 +413,6 @@ void SwiftTransformer::shadowInst(Instruction* I) {
                     Instruction* shadow = I->clone();
                     shadowInstOperands(I, shadow);
                     shadows.add(I, shadow);
-                    errs() <<  *shadow << "\n";
                     irBuilder.Insert(shadow, I->getName() + CLONE_SUFFIX);
                     break;
                 }
@@ -427,36 +425,30 @@ void SwiftTransformer::shadowInst(Instruction* I) {
             // make a shadow for allocated/returned value using swift-move
             Instruction *shadow = createMoveCall(irBuilder, I);
             shadows.add(I, shadow);
-            errs() <<  *shadow << "\n";
         }
             break;
             
-            
-        case Instruction::Invoke://Create shadow invoke
-        {
+        case Instruction::Invoke:
+            //errs() << "Invoke\n";
             if (InvokeInst* inv = dyn_cast<InvokeInst>(I)) {
-                
-                //gets normal destination BB and initialises a IR Builder for it
-                //to insert the swift move related to its invoke right at its begining
-                BasicBlock* normDestBB=inv->getNormalDest();
-                //errs() << "Adding to map" << *I;
-                //excHand2Check.insert(std::make_pair(normDestBB,inv));
-                IRBuilder<> irBuilder4normDBB(normDestBB, normDestBB->getFirstInsertionPt());
-                Instruction *shadow = createMoveCall(irBuilder4normDBB, I);
-                //errs() << "to be inserted at" << *normDestBB << "\n";
-                //irBuilder4normDBB.Insert(shadow);
-                errs() << "I added:" <<*shadow << "\n";
-                shadows.add(I, shadow);
-                dontcheck.insert(shadow);
-                
+                //Check if called function is not void
+                if(inv->getType() && inv->getType()->getTypeID()!=0){
+                    //ges normal destination BB and initialises a IR Builder for it
+                    //to insert the swift move related to its invoke right at its begining
+                    BasicBlock* normDestBB=inv->getNormalDest();
+                    IRBuilder<> irBuilder4normDBB(normDestBB, normDestBB->getFirstInsertionPt());
+                    //invokeShadows.add(I, irBuilder4normDBB);
+                    Instruction *shadow = createMoveCall(irBuilder4normDBB, I, true);
+                    shadows.add(I, shadow);
+                    break;
+                }else{
+                    errs() << "Invoke with void type\n";
+                }
                 
             }
-            
-        }
             break;
         case Instruction::LandingPad:
         case Instruction::Resume:
-        case Instruction::CatchPad:
             /* TODO: handle these instructions */
             break;
             
@@ -467,12 +459,9 @@ void SwiftTransformer::shadowInst(Instruction* I) {
     }
 }
 
+//Checkes if given instruction against its shadow
 void SwiftTransformer::checkInst(Instruction* I) {
     BasicBlock::iterator instIt(I);
-    errs() << "Checking instruction:" << *I << "\n";
-    if (dontcheck.count(I)!=0) {
-        //return;
-    }
     
     switch (I->getOpcode()) {
         case Instruction::AtomicCmpXchg:	// we treat cmpxchg as a load-store instruction
@@ -481,6 +470,31 @@ void SwiftTransformer::checkInst(Instruction* I) {
         case Instruction::Ret:
         case Instruction::Switch:
         case Instruction::Invoke:
+        {
+            if (CallInst* call = dyn_cast<CallInst>(I)) {
+                // do not do anything with duplicated (llvm-intrinsic) functions
+                if (swiftHelpers->isDuplicatedFunc(call->getCalledFunction()))
+                    break;
+                // do not check calls to "ignored" functions
+                if (swiftHelpers->isIgnoredFunc(call->getCalledFunction()))
+                    break;
+            }
+            
+            IRBuilder<> irBuilder(instIt->getParent(), instIt);
+            checkInstOperands(I, irBuilder);
+            
+        }
+            break;
+        case Instruction::Br: {
+            BranchInst *BI = cast<BranchInst>(I);
+            if (BI->isUnconditional())
+                break;
+            
+            // delay adding control-flow checks on conditional branches
+            brs.push_back(BI);
+        }
+            break;
+            
         case Instruction::Load: {
             LoadInst *LI = cast<LoadInst>(I);
 #ifdef SWIFT_OPTIMIZE_SHARED_MEMORY_ACCESSES
@@ -502,7 +516,6 @@ void SwiftTransformer::checkInst(Instruction* I) {
             StoreInst *SI = cast<StoreInst>(I);
             
 #ifdef SWIFT_OPTIMIZE_SHARED_MEMORY_ACCESSES
-            errs()<<"->1\n";
             if (isa<GlobalVariable>(SI->getPointerOperand())) {
                 // optimization: if store global variable, we know that
                 // address is constant and no need to load after store
@@ -514,7 +527,7 @@ void SwiftTransformer::checkInst(Instruction* I) {
                 checkInstOperands(I, irBuilder);
                 break;
             }
-            errs()<<"->2\n";
+            
             if (SI->isAtomic()) {
                 // atomic stores work on shared non-locked data, we must not
                 // load after store, otherwise can see inconsistent copies;
@@ -523,19 +536,18 @@ void SwiftTransformer::checkInst(Instruction* I) {
                 checkInstOperands(I, irBuilder);
                 break;
             }
-            errs()<<"->3\n";
+            
             // add check instruction(s) after I
             IRBuilder<> irBuilder(instIt->getParent(), std::next(instIt));
             
             // get a shadow value for this store
             Value *val = SI->getValueOperand();
             Value *shadowval = shadows.getShadow(val, SI);
-            errs()<< "Value:"<<*val <<"\n";
             if (!shadowval) {
                 // no meaningful shadow value, nothing to check against
                 break;
             }
-            errs()<< "Shadow:" << *shadowval <<"\n";
+            
             // get shadow address (or reuse master address) to load a freshly stored value
             Value *ptr = SI->getPointerOperand();
             Value *shadowptr = shadows.getShadow(ptr, SI);
@@ -546,7 +558,7 @@ void SwiftTransformer::checkInst(Instruction* I) {
             
             LoadInst *loadedval = irBuilder.CreateLoad(shadowptr, true, "swift.loadtocheckstore"); // volatile load
             loadedval->setAlignment(align);
-            errs()<<"->4\n";
+            
             // compare freshly stored value (reloaded for comparison) and shadow value
             createCheckerCall(irBuilder, loadedval, shadowval, false);
             
@@ -562,6 +574,7 @@ void SwiftTransformer::checkInst(Instruction* I) {
             break;
     }
 }
+
 
 void SwiftTransformer::shadowArgs(Function& F, Instruction* firstI) {
     // add shadow args' definitions before firstI
@@ -740,7 +753,6 @@ void SwiftTransformer::addShadowBasicBlocks(BranchInst* BI) {
     if (CmpInst *cmp1 = dyn_cast<CmpInst>(BI->getCondition())) {
         CmpInst *cmp2 = dyn_cast<CmpInst>( shadows.getShadow(cmp1, BI) );
         if (!cmp2) return;
-        
         // --- create Detected BB once for each function ---
         if (!detectedBB) {
             LLVMContext &C = BI->getContext();
@@ -750,7 +762,6 @@ void SwiftTransformer::addShadowBasicBlocks(BranchInst* BI) {
             irBuilder.CreateCall(swiftHelpers->detectedfunc, args);
             irBuilder.CreateUnreachable();
         }
-        
         for (unsigned succidx = 0; succidx < BI->getNumSuccessors(); succidx++) {
             BasicBlock *SuccBB = BI->getSuccessor(succidx);
             
@@ -789,12 +800,17 @@ void SwiftTransformer::addShadowBasicBlocks(BranchInst* BI) {
 
 
 void SwiftTransformer::addControlFlowChecks() {
+    
     for (auto brIt = brs.begin(); brIt != brs.end(); ++brIt) {
+        
         BranchInst* BI = *brIt;
 #ifdef SWIFT_SIMPLE_CONTROL_FLOW
         // insert additional shadow BBs to protect against status
         // register corruption ??
+        
+        errs() << *BI << "\n";
         addShadowBasicBlocks(BI);
+        
 #else
         // fallback to simple & slow strategy: check branch condition
         IRBuilder<> irBuilder(BI->getParent(), BI);
@@ -805,32 +821,6 @@ void SwiftTransformer::addControlFlowChecks() {
     }
     
 }
-
-void SwiftTransformer::addInvokeChecks(Function& F) {
-    errs() << "Started cycle for function:"<<F.getName()<<"\n";
-    for (Function::iterator BB = F.begin(), BE = F.end(); BB != BE; ++BB) {
-        //Inst2ShadowInBBMap::iterator it;
-        BasicBlock* bb=&*BB;
-        if(excHand2Check.find(bb) != excHand2Check.end()){
-            errs() << "Found invoke to be shadowed in normal destination block\n";
-            Instruction* I =excHand2Check.find(bb)->second;
-            //check that we are dealing with an invoke
-            if(I->getOpcode()==Instruction::Invoke){
-                errs() << "Shadowing instruction:" << *I << "\n";
-                errs() << "in BB:" << *bb;
-                IRBuilder<> irBuilder4normDBB(bb, bb->getFirstInsertionPt());
-                Instruction *shadow = createMoveCall(irBuilder4normDBB, I);
-                errs() << "to be inserted at" << *bb << "\n";
-                //irBuilder4normDBB.Insert(shadow);
-                errs() <<  *shadow << "\n";
-                shadows.add(I, shadow);
-                
-            }
-        }
-    }
-    
-}
-
 
 
 SwiftTransformer::SwiftTransformer(SwiftHelpers* inSwiftHelpers) {

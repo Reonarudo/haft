@@ -1,4 +1,4 @@
-/ The Computer Language Benchmarks Game
+// The Computer Language Benchmarks Game
 // http://benchmarksgame.alioth.debian.org/
 //
 // Contributed by TeXitoi
@@ -12,11 +12,11 @@
 //COMMAND LINE:
 //./pidigits.rust_run 10000
 
-#![allow(non_camel_case_types)]
+//#![allow(non_camel_case_types)]
 
-//extern crate libc;
+extern crate libc;
 // exporting needed things from libc for linux x64 (still unstable)
-#[cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "x86")))]
+#[cfg(all(target_os = "Darwin", any(target_arch = "x86_64", target_arch = "x86")))]
 mod libc {
     #![allow(non_camel_case_types)]
     #[repr(u8)]

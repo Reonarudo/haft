@@ -14,13 +14,13 @@ declare <4 x float> @llvm.x86.psmovswift(<4 x float>)
 
 ; ===================================================================== helpers
 declare void @llvm.x86.xabort(i8)
-declare void @exit(i32)
+declare void @_ZN7process4exit20h92b6f02e7638644dF2mE(i32)
 
 ; Function Attrs: alwaysinline nounwind uwtable
 define void @"SWIFT$detected"() #0 {
 entry:
   tail call void @llvm.x86.xabort(i8 64)
-  tail call void @exit(i32 2)                     ; not in transaction
+  tail call void @_ZN7process4exit20h92b6f02e7638644dF2mE(i32 2)                     ; not in transaction
   unreachable
 }
 

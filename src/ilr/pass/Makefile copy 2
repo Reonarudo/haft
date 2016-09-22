@@ -1,0 +1,22 @@
+SOURCES = ilr.cpp
+LIB_NAME = ilr_pass$(SUFIX)
+
+include ../../Makefile.local
+
+#OBJ = $(addsuffix .o, $(basename ${SOURCES}))
+
+#LDFLAGS = $(shell $(LLVM_PATH)llvm-config --ldflags)
+#CXXFLAGS = -g -Wall -fno-rtti -fPIC -shared $(shell $(LLVM_PATH)llvm-config --cxxflags --system-libs --libs core executionengine interpreter mc support nativecodegen)
+
+LLVM_OPT = $(LLVM_PATH)opt
+ILR_PASSFILE = ilr_pass.dylib
+ILR_PASSNAME = -ilr
+NAME = int
+
+all:
+	$(LLVM_OPT) -load $(ILR_PASSFILE) $(ILR_PASSNAME) < $(NAME).bc >
+
+clean:
+	rm -f *.o *~
+	rm -f $(LIB_NAME)
+

@@ -14,6 +14,8 @@ all: $(LIB_NAME)
 $(LIB_NAME): $(OBJ)
 	$(COMPILER) $(CXXFLAGS) -bundle $(LDFLAGS) $^ -o $@
 
+
+
 clean:
 	rm -f *.o *~
 	rm -f $(LIB_NAME)
